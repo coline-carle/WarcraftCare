@@ -1,0 +1,8 @@
+## Interface: 70300
+## Title: Seed Reporter
+## Author: Sweetlie
+## Version: 1.0.0
+## Notes: report seed
+
+SeedReporter.lua
+ui.xml
