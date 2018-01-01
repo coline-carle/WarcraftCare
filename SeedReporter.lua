@@ -179,6 +179,7 @@ function SeedReporter:ADDON_LOADED()
   self.player = {}
   self.player.name = UnitName("player")
   self.player.realm = GetRealmName()
+  self.player.guid = UnitGUID("player")
   self.roster = {}
   self.logs = {}
 
