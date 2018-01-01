@@ -110,34 +110,39 @@ end
 
 
 
-function SeedReporter:GetName(unit)
+function SeedReporter:GetFullname(unit)
   if not UnitExists(unit) then
     return nil
   end
   local name, realm = UnitName(unit)
+
   if name and name ~= UNKNOWNOBJECT and name ~= UNKNOWNBEING then
-    return name
+    if realm == nil then
+      realm = self.realm
+    end
+
+    return name .. '-' .. realm
   end
 end
 
 function SeedReporter:UpdateUnit(unit)
-  local name, realm = UnitName(unit)
+
   local guid = UnitGUID(unit)
 
   if guid then
-    if realm == "" then realm = self.realm end
+    local name = self:GetFullname(unit)
     if self.units_to_remove[guid] then
        self.units_to_remove[guid] = nil
     end
-    if not self.roster[guid] then
-      self.roster[guid].name = name
-      self.roster[guid].realm = realm
-    end
+    if not self.roster[guid] then self.roster[guid] = {} end
+    self.roster[guid].name = name
   end
 end
 
 function SeedReporter:OnRosterUpdate()
-  local num = GetNumRaidMembers()
+  self:Print("OnRosterUpdate")
+  local num = GetNumGroupMembers(LE_PARTY_CATEGORY_HOME)
+  self:Print(num)
 
   self.units_to_remove = {}
 
@@ -158,16 +163,31 @@ function SeedReporter:OnRosterUpdate()
       self:UpdateUnit(unit)
     end
   end
+
+  for guid, unit in pairs(self.roster) do
+    self:Print(guid)
+    self:Print(unit["name"])
+  end
 end
 
 function SeedReporter:ADDON_LOADED()
-  SeedReporter:Print("SeedReporter Loaded")
-  SeedReporter:UnregisterEvent("ADDON_LOADED")
+  self:Print("SeedReporter Loaded")
+  self:UnregisterEvent("ADDON_LOADED")
+  self.roster = {}
+  self.realm = GetRealmName()
+  self:RegisterEvent("GROUP_ROSTER_UPDATE")
+  self:RegisterEvent("UNIT_NAME_UPDATE")
+
 end
 
 function SeedReporter:OnEvent(event, ...)
   if event == "ADDON_LOADED" then
     self:ADDON_LOADED(...)
+  end
+
+  if event == "GROUP_ROSTER_UPDATE" or
+     event == "UNIT_NAME_UPDATE" then
+    self:OnRosterUpdate(...)
   end
 end
 
