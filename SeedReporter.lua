@@ -117,7 +117,7 @@ function SeedReporter:UNIT_SPELLCAST_SUCCEEDED(...)
 
   if self.roster[guid] and planting[spellID] and not self.castLogged[lineID] then
     self.castLogged[lineID] = true
-    log = { self.roster[guid].name, SEED_ACTION, spellID, 1}
+    log = { time(), self.roster[guid].name, SEED_ACTION, spellID, 1}
     table.insert(self.logs, table.concat(log, ','))
   end
 end
@@ -129,7 +129,7 @@ function SeedReporter:CHAT_MSG_LOOT(msg)
   if itemLink and guid and self.roster[guid] then
     itemid = self:GetItemID(itemLink)
     if filtered[itemid] then
-      log = { self.roster[guid].name, LOOT_ACTION, itemid, quantity}
+      log = { time(), self.roster[guid].name, LOOT_ACTION, itemid, quantity}
       table.insert(self.logs, table.concat(log, ','))
     end
   end
