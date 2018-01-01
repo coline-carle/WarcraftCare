@@ -7,7 +7,7 @@ local LOOT_ITEM_MULTIPLE = _G.LOOT_ITEM_MULTIPLE:gsub("%%s", "(.+)"):gsub("%%d",
 local LOOT_ITEM = _G.LOOT_ITEM:gsub("%%s", "(.+)")
 local UNKNOWNBEING = _G.UNKNOWNBEING
 local UNKNOWNOBJECT = _G.UNKNOWNOBJECT
-
+local LOOT_ACTION = 1
 
 local filtered = {
   [124101] = true,  -- aethril
@@ -77,7 +77,7 @@ function SeedReporter:GetItemID(link)
 end
 
 function SeedReporter:Export()
-  return table.concat(self.loots, '\n')
+  return table.concat(self.logs, '\n')
 end
 
 
@@ -109,6 +109,15 @@ function SeedReporter:UNIT_SPELLCAST_SUCCEEDED(...)
 end
 
 
+function SeedReporter:CHAT_MSG_LOOT(msg)
+  local player, itemLink, quantity  = self:ParseLootMessage(msg)
+  local guid = UnitGUID(player)
+  if itemLink and guid and self.roster[guid] then
+    itemid = self:GetItemID(itemLink)
+    log = { self.roster[guid].name, LOOT_ACTION, itemid, quantity}
+    table.insert(self.logs, table.concat(log, ','))
+  end
+end
 
 function SeedReporter:GetFullname(unit)
   if not UnitExists(unit) then
@@ -118,7 +127,7 @@ function SeedReporter:GetFullname(unit)
 
   if name and name ~= UNKNOWNOBJECT and name ~= UNKNOWNBEING then
     if realm == nil then
-      realm = self.realm
+      realm = self.player.realm
     end
 
     return name .. '-' .. realm
@@ -140,9 +149,7 @@ function SeedReporter:UpdateUnit(unit)
 end
 
 function SeedReporter:OnRosterUpdate()
-  self:Print("OnRosterUpdate")
   local num = GetNumGroupMembers(LE_PARTY_CATEGORY_HOME)
-  self:Print(num)
 
   self.units_to_remove = {}
 
@@ -163,26 +170,31 @@ function SeedReporter:OnRosterUpdate()
       self:UpdateUnit(unit)
     end
   end
-
-  for guid, unit in pairs(self.roster) do
-    self:Print(guid)
-    self:Print(unit["name"])
-  end
 end
 
 function SeedReporter:ADDON_LOADED()
   self:Print("SeedReporter Loaded")
   self:UnregisterEvent("ADDON_LOADED")
+
+  self.player = {}
+  self.player.name = UnitName("player")
+  self.player.realm = GetRealmName()
   self.roster = {}
-  self.realm = GetRealmName()
+  self.logs = {}
+
   self:RegisterEvent("GROUP_ROSTER_UPDATE")
   self:RegisterEvent("UNIT_NAME_UPDATE")
+  self:RegisterEvent("CHAT_MSG_LOOT")
 
 end
 
 function SeedReporter:OnEvent(event, ...)
   if event == "ADDON_LOADED" then
     self:ADDON_LOADED(...)
+  end
+
+  if event == "CHAT_MSG_LOOT" then
+    self:CHAT_MSG_LOOT(...)
   end
 
   if event == "GROUP_ROSTER_UPDATE" or
