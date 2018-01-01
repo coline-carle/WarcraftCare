@@ -5,20 +5,49 @@ local LOOT_ITEM_SELF_MULTIPLE = _G.LOOT_ITEM_SELF_MULTIPLE:gsub("%%s", "(.+)"):g
 local LOOT_ITEM_SELF = _G.LOOT_ITEM_SELF:gsub("%%s", "(.+)")
 local LOOT_ITEM_MULTIPLE = _G.LOOT_ITEM_MULTIPLE:gsub("%%s", "(.+)"):gsub("%%d", "(.+)")
 local LOOT_ITEM = _G.LOOT_ITEM:gsub("%%s", "(.+)")
+local UNKNOWNBEING = _G.UNKNOWNBEING
+local UNKNOWNOBJECT = _G.UNKNOWNOBJECT
+
 
 local filtered = {
+  [124101] = true,  -- aethril
+  [124102] = true,  -- dreamleaf
   [124103] = true,  -- foxflower
+  [124104] = true,  -- fjarnskaggl
+  [124105] = true,  -- starlight rose
+  [129284] = true,  -- aethril seed
+  [129285] = true,  -- dreamleaf seed
+  [129286] = true,  -- foxflower seed
+  [129287] = true,  -- fjarnskaggl seed
+  [129288] = true,  -- starlight rose seed
+  [124124] = true,  -- blood of sargeras
   [128304] = true   -- yseraline seed
 }
+
+local planting = {
+  [193795] = true, -- Aethril
+  [193797] = true, -- Dreamleaf
+  [193799] = true, -- Fjarnskaggl
+  [193798] = true, -- Foxflower
+  [193800] = true  -- Starlight Rose
+}
+
+SLASH_SEEDREPORT1 = "/seedreport"
+SlashCmdList["SEEDREPORT"] = function(msg)
+  local export_text = SeedReporter:Export()
+  SeedReporterCopyFrame:Show()
+  SeedReporterCopyFrameScroll:Show()
+  SeedReporterCopyFrameScrollText:Show()
+  SeedReporterCopyFrameScrollText:SetText(export_text)
+  SeedReporterCopyFrameScrollText:HighlightText()
+end
 
 function SeedReporter:Print(msg)
   _DEFAULT_CHAT_FRAME:AddMessage(msg)
 end
 
-
-
 function SeedReporter:ParseLootMessage(message)
-	local player = self.player
+	local player = self.player.name
 	local itemLink, quantity = message:match(LOOT_ITEM_SELF_MULTIPLE)
 
 	if itemLink and quantity then
@@ -51,36 +80,97 @@ function SeedReporter:Export()
   return table.concat(self.loots, '\n')
 end
 
-function SeedReporter:CHAT_MSG_LOOT(message)
-  local player, link, quantity = self:ParseLootMessage(message)
-  if link == nil or link == "" then
+
+function SeedReporter:UNIT_SPELLCAST_SUCCEEDED(...)
+  local unitId = select(1, ...)
+  local lineId = select(4, ...)
+  local spellId = select(5, ...)
+
+  local guid = UnitGUID(unitId)
+
+  if not string.find(unitId, "party")  and
+     not string.find(unitId, "player") and
+     not string.find(unitId, "raid")   or
+         string.find(unitId, "pet")    then
+    return false
+  end
+
+  -- Ignore duplicate player events
+  if self.player.guid == guid and unitId ~= "player" then
+    return false
+  end
+
+  if self.roster[guid] then
+    self:Print(unitId)
+    self:Print(lineId)
+    self:Print(spellId)
+    self:Print(guid)
+  end
+end
+
+
+
+function SeedReporter:GetName(unit)
+  if not UnitExists(unit) then
     return nil
   end
-  local itemid = self:GetItemID(link)
-  if filtered[itemid] then
-    loot = { time(), player, itemid, quantity }
-    table.insert(self.loots, table.concat(loot, ','))
+  local name, realm = UnitName(unit)
+  if name and name ~= UNKNOWNOBJECT and name ~= UNKNOWNBEING then
+    return name
   end
 end
 
-SLASH_SEEDREPORT1 = "/seedreport"
-SlashCmdList["SEEDREPORT"] = function(msg)
-  local export_text = SeedReporter:Export()
-  SeedReporterCopyFrame:Show()
-  SeedReporterCopyFrameScroll:Show()
-  SeedReporterCopyFrameScrollText:Show()
-  SeedReporterCopyFrameScrollText:SetText(export_text)
-  SeedReporterCopyFrameScrollText:HighlightText()
+function SeedReporter:UpdateUnit(unit)
+  local name, realm = UnitName(unit)
+  local guid = UnitGUID(unit)
+
+  if guid then
+    if realm == "" then realm = self.realm end
+    if self.units_to_remove[guid] then
+       self.units_to_remove[guid] = nil
+    end
+    if not self.roster[guid] then
+      self.roster[guid].name = name
+      self.roster[guid].realm = realm
+    end
+  end
 end
 
+function SeedReporter:OnRosterUpdate()
+  local num = GetNumRaidMembers()
+
+  self.units_to_remove = {}
+
+  for guid, unit in pairs(self.roster) do
+    if not unit["active"] then
+      self.units_to_remove[guid] = true
+    end
+  end
+
+  for guid in pairs(self.units_to_remove) do
+    self.roster[guid] = nil
+    self.units_to_remove[guid] = nil
+  end
+
+  for i = 1, num do
+    local unit = ("raid%d"):format(i)
+    if UnitExists(unit) then
+      self:UpdateUnit(unit)
+    end
+  end
+end
 
 function SeedReporter:ADDON_LOADED()
-    self:UnregisterEvent("ADDON_LOADED")
-    self.player = UnitName("player")
-    self.loots = {}
-    self:RegisterEvent("CHAT_MSG_LOOT")
-    self:Print("Seed Reporter Loaded")
+  SeedReporter:Print("SeedReporter Loaded")
+  SeedReporter:UnregisterEvent("ADDON_LOADED")
 end
 
-SeedReporter:SetScript("OnEvent", function(self, event, ...) self[event](self, ...) end)
+function SeedReporter:OnEvent(event, ...)
+  if event == "ADDON_LOADED" then
+    self:ADDON_LOADED(...)
+  end
+end
+
+
+SeedReporter:SetScript("OnEvent", SeedReporter.OnEvent)
 SeedReporter:RegisterEvent("ADDON_LOADED")
