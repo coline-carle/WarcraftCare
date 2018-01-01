@@ -8,6 +8,7 @@ local LOOT_ITEM = _G.LOOT_ITEM:gsub("%%s", "(.+)")
 local UNKNOWNBEING = _G.UNKNOWNBEING
 local UNKNOWNOBJECT = _G.UNKNOWNOBJECT
 local LOOT_ACTION = 1
+local SEED_ACTION = 2
 
 local filtered = {
   [124101] = true,  -- aethril
@@ -32,6 +33,18 @@ local planting = {
   [193800] = true  -- Starlight Rose
 }
 
+local plantingSubzones = {
+  -- Azsuna - Farondale
+  ["Farondale"] = true,
+  ["Faronau"] = true,
+  ["Faroncombe"] = true,
+  ["Valfaron"] = true,
+  ["파론데일"] = true,
+  ["Фарондаль"] = true,
+  ["法隆戴尔"] = true,
+  ["法隆谷地"] = true
+}
+
 SLASH_SEEDREPORT1 = "/seedreport"
 SlashCmdList["SEEDREPORT"] = function(msg)
   local export_text = SeedReporter:Export()
@@ -45,6 +58,8 @@ end
 function SeedReporter:Print(msg)
   _DEFAULT_CHAT_FRAME:AddMessage(msg)
 end
+
+
 
 function SeedReporter:ParseLootMessage(message)
 	local player = self.player.name
@@ -82,29 +97,28 @@ end
 
 
 function SeedReporter:UNIT_SPELLCAST_SUCCEEDED(...)
-  local unitId = select(1, ...)
-  local lineId = select(4, ...)
-  local spellId = select(5, ...)
+  local unit = select(1, ...)
+  local lineID = select(4, ...)
+  local spellID = select(5, ...)
 
-  local guid = UnitGUID(unitId)
+  local guid = UnitGUID(unit)
 
-  if not string.find(unitId, "party")  and
-     not string.find(unitId, "player") and
-     not string.find(unitId, "raid")   or
-         string.find(unitId, "pet")    then
+  if not string.find(unit, "party")  and
+     not string.find(unit, "player") and
+     not string.find(unit, "raid")   or
+         string.find(unit, "pet")    then
     return false
   end
 
   -- Ignore duplicate player events
-  if self.player.guid == guid and unitId ~= "player" then
+  if self.player.guid == guid and unit ~= "player" then
     return false
   end
 
-  if self.roster[guid] then
-    self:Print(unitId)
-    self:Print(lineId)
-    self:Print(spellId)
-    self:Print(guid)
+  if self.roster[guid] and planting[spellID] and not self.castLogged[lineID] then
+    self.castLogged[lineID] = true
+    log = { self.roster[guid].name, SEED_ACTION, spellID, 1}
+    table.insert(self.logs, table.concat(log, ','))
   end
 end
 
@@ -114,8 +128,10 @@ function SeedReporter:CHAT_MSG_LOOT(msg)
   local guid = UnitGUID(player)
   if itemLink and guid and self.roster[guid] then
     itemid = self:GetItemID(itemLink)
-    log = { self.roster[guid].name, LOOT_ACTION, itemid, quantity}
-    table.insert(self.logs, table.concat(log, ','))
+    if filtered[itemid] then
+      log = { self.roster[guid].name, LOOT_ACTION, itemid, quantity}
+      table.insert(self.logs, table.concat(log, ','))
+    end
   end
 end
 
@@ -148,7 +164,7 @@ function SeedReporter:UpdateUnit(unit)
   end
 end
 
-function SeedReporter:OnRosterUpdate()
+function SeedReporter:UpdateRoster()
   local num = GetNumGroupMembers(LE_PARTY_CATEGORY_HOME)
 
   self.units_to_remove = {}
@@ -172,8 +188,27 @@ function SeedReporter:OnRosterUpdate()
   end
 end
 
+function SeedReporter:CheckZone()
+  subzone = GetSubZoneText()
+
+  if plantingSubzones[subzone] then
+      self:RegisterEvent("GROUP_ROSTER_UPDATE")
+      self:RegisterEvent("UNIT_NAME_UPDATE")
+      self:RegisterEvent("CHAT_MSG_LOOT")
+      self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+
+      self.inPlantingSubzone = true
+      self:UpdateRoster()
+    elseif self.inPlantingSubzone then
+      -- we are no more in planting subzone unregister event triggers
+      self:UnregisterEvent("GROUP_ROSTER_UPDATE")
+      self:UnregisterEvent("UNIT_NAME_UPDATE")
+      self:UnregisterEvent("CHAT_MSG_LOOT")
+      self:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    end
+end
+
 function SeedReporter:ADDON_LOADED()
-  self:Print("SeedReporter Loaded")
   self:UnregisterEvent("ADDON_LOADED")
 
   self.player = {}
@@ -182,11 +217,12 @@ function SeedReporter:ADDON_LOADED()
   self.player.guid = UnitGUID("player")
   self.roster = {}
   self.logs = {}
+  self.castLogged = {}
+  -- initialize to false but check subzone immediatlly after
+  self.inPlantingSubzone = false
 
-  self:RegisterEvent("GROUP_ROSTER_UPDATE")
-  self:RegisterEvent("UNIT_NAME_UPDATE")
-  self:RegisterEvent("CHAT_MSG_LOOT")
-
+  self:CheckZone()
+  self:RegisterEvent("ZONE_CHANGED")
 end
 
 function SeedReporter:OnEvent(event, ...)
@@ -194,14 +230,28 @@ function SeedReporter:OnEvent(event, ...)
     self:ADDON_LOADED(...)
   end
 
-  if event == "CHAT_MSG_LOOT" then
-    self:CHAT_MSG_LOOT(...)
-  end
-
   if event == "GROUP_ROSTER_UPDATE" or
      event == "UNIT_NAME_UPDATE" then
-    self:OnRosterUpdate(...)
+    self:UpdateRoster()
   end
+
+  if IsInRaid() then
+
+    if event == "ZONE_CHANGED" then
+      self:CheckZone()
+    end
+
+    if event == "CHAT_MSG_LOOT" then
+      self:CHAT_MSG_LOOT(...)
+    end
+
+
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+      self:UNIT_SPELLCAST_SUCCEEDED(...)
+    end
+  end
+
+
 end
 
 
