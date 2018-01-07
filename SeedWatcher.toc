@@ -1,0 +1,8 @@
+## Interface: 70300
+## Title: Seed Watcher
+## Author: Sweetlie
+## Version: 1.0.0
+## Notes: show seeders report
+
+SeedWatcher.lua
+embeds.xml

@@ -1,4 +1,6 @@
-local SeedReporter = CreateFrame("FRAME", "SeedReporterFrame")
+local SeedWatcher = LibStub("AceAddon-3.0"):NewAddon("SeedWatcher", "AceConsole-3.0")
+
+-- local libwindow = LibStub("LibWindow-1.1")
 
 local _DEFAULT_CHAT_FRAME = DEFAULT_CHAT_FRAME
 local LOOT_ITEM_SELF_MULTIPLE = _G.LOOT_ITEM_SELF_MULTIPLE:gsub("%%s", "(.+)"):gsub("%%d", "(.+)")
@@ -45,23 +47,8 @@ local plantingSubzones = {
   ["法隆谷地"] = true
 }
 
-SLASH_SEEDREPORT1 = "/seedreport"
-SlashCmdList["SEEDREPORT"] = function(msg)
-  local export_text = SeedReporter:Export()
-  SeedReporterCopyFrame:Show()
-  SeedReporterCopyFrameScroll:Show()
-  SeedReporterCopyFrameScrollText:Show()
-  SeedReporterCopyFrameScrollText:SetText(export_text)
-  SeedReporterCopyFrameScrollText:HighlightText()
-end
 
-function SeedReporter:Print(msg)
-  _DEFAULT_CHAT_FRAME:AddMessage(msg)
-end
-
-
-
-function SeedReporter:ParseLootMessage(message)
+function SeedWatcher:ParseLootMessage(message)
 	local player = self.player.name
 	local itemLink, quantity = message:match(LOOT_ITEM_SELF_MULTIPLE)
 
@@ -86,17 +73,12 @@ function SeedReporter:ParseLootMessage(message)
 	return player, itemLink, tonumber(quantity)
 end
 
-function SeedReporter:GetItemID(link)
+function SeedWatcher:GetItemID(link)
   local _, _, itemid = string.find(link, "Hitem:(%d+):")
   return tonumber(itemid)
 end
 
-function SeedReporter:Export()
-  return table.concat(self.logs, '\n')
-end
-
-
-function SeedReporter:UNIT_SPELLCAST_SUCCEEDED(...)
+function SeedWatcher:UNIT_SPELLCAST_SUCCEEDED(...)
   local unit = select(1, ...)
   local lineID = select(4, ...)
   local spellID = select(5, ...)
@@ -116,26 +98,26 @@ function SeedReporter:UNIT_SPELLCAST_SUCCEEDED(...)
   end
 
   if self.roster[guid] and planting[spellID] and not self.castLogged[lineID] then
-    self.castLogged[lineID] = true
-    log = { time(), self.roster[guid].name, SEED_ACTION, spellID, 1}
-    table.insert(self.logs, table.concat(log, ','))
+    self.unit[guid].castsSucceded[lineID] = true
+    self.unit[guid].planted[spellID] = self.unit[guid].planted[spellID] + 1
+    self.unit[guid].lastCastSucceded = GetTime()
   end
 end
 
-
-function SeedReporter:CHAT_MSG_LOOT(msg)
-  local player, itemLink, quantity  = self:ParseLootMessage(msg)
-  local guid = UnitGUID(player)
+function SeedWatcher:CHAT_MSG_LOOT(msg, _, _, _, target)
+  local _, itemLink, quantity  = self:ParseLootMessage(msg)
+  local guid = UnitGUID(target)
   if itemLink and guid and self.roster[guid] then
-    itemid = self:GetItemID(itemLink)
+    local itemid = self:GetItemID(itemLink)
     if filtered[itemid] then
-      log = { time(), self.roster[guid].name, LOOT_ACTION, itemid, quantity}
-      table.insert(self.logs, table.concat(log, ','))
+      if (GetTime() - self.unit[guid].lastCast) < 2.0 then
+        self.roster[guid].loots[itemid] = self.roster[guid].loots[itemid] + quantity
+      end
     end
   end
 end
 
-function SeedReporter:GetFullname(unit)
+function SeedWatcher:GetFullname(unit)
   if not UnitExists(unit) then
     return nil
   end
@@ -150,21 +132,38 @@ function SeedReporter:GetFullname(unit)
   end
 end
 
-function SeedReporter:UpdateUnit(unit)
+function SeedWatcher:InitUnit()
+  local unit = {}
+  unit['planted'] = {}
+  for spellid in pairs(planting) do
+    unit.planted[spellid] = 0
+  end
+
+  unit['loots'] = {}
+  for itemid in pairs(filtered) do
+    unit.loots[itemid] = 0
+  end
+
+  unit["castsSucceded"] = {}
+  unit["lastCastSucceded"] = 0.0
+  return unit
+end
+
+function SeedWatcher:UpdateUnit(unit)
 
   local guid = UnitGUID(unit)
 
   if guid then
     local name = self:GetFullname(unit)
     if self.units_to_remove[guid] then
-       self.units_to_remove[guid] = nil
+       self.units_to_remove[guid] = SeedWatcher:InitUnit()
     end
     if not self.roster[guid] then self.roster[guid] = {} end
     self.roster[guid].name = name
   end
 end
 
-function SeedReporter:UpdateRoster()
+function SeedWatcher:UpdateRoster()
   local num = GetNumGroupMembers(LE_PARTY_CATEGORY_HOME)
 
   self.units_to_remove = {}
@@ -188,8 +187,8 @@ function SeedReporter:UpdateRoster()
   end
 end
 
-function SeedReporter:CheckZone()
-  subzone = GetSubZoneText()
+function SeedWatcher:CheckZone()
+  local subzone = GetSubZoneText()
 
   if plantingSubzones[subzone] then
       self:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -208,8 +207,7 @@ function SeedReporter:CheckZone()
     end
 end
 
-function SeedReporter:ADDON_LOADED()
-  self:UnregisterEvent("ADDON_LOADED")
+function SeedWatcher:OnInitialize()
 
   self.player = {}
   self.player.name = UnitName("player")
@@ -225,35 +223,14 @@ function SeedReporter:ADDON_LOADED()
   self:RegisterEvent("ZONE_CHANGED")
 end
 
-function SeedReporter:OnEvent(event, ...)
-  if event == "ADDON_LOADED" then
-    self:ADDON_LOADED(...)
-  end
-
-  if event == "GROUP_ROSTER_UPDATE" or
-     event == "UNIT_NAME_UPDATE" then
-    self:UpdateRoster()
-  end
-
-  if IsInRaid() then
-
-    if event == "ZONE_CHANGED" then
-      self:CheckZone()
-    end
-
-    if event == "CHAT_MSG_LOOT" then
-      self:CHAT_MSG_LOOT(...)
-    end
-
-
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
-      self:UNIT_SPELLCAST_SUCCEEDED(...)
-    end
-  end
-
-
+function SeedWatcher:GROUP_ROSTER_UPDATE()
+  self:UpdateRoster()
 end
 
+function SeedWatcher:UNIT_NAME_UPDATE()
+  self:UpdateRoster()
+end
 
-SeedReporter:SetScript("OnEvent", SeedReporter.OnEvent)
-SeedReporter:RegisterEvent("ADDON_LOADED")
+function SeedWatcher:ZONE_CHANGED()
+  self:CheckZone()
+end

@@ -1,0 +1,11 @@
+package-as: SeedWatcher
+
+externals:
+  Libs/LibStub: svn://svn.wowace.com/wow/libstub/mainline/tags/1.0
+  Libs/AceAddon-3.0: https://repos.wowace.com/wow/ace3/trunk/AceAddon-3.0
+  Libs/AceConsole-3.0: https://repos.wowace.com/wow/ace3/trunk/AceConsole-3.0
+  Libs/AceTimer-3.0: https://repos.wowace.com/wow/ace3/trunk/AceTimer-3.0
+  Libs/libwindow-1-1: svn://svn.wowace.com/wow/libwindow-1-1/mainline/trunk
+
+  ignore:
+    - .travis.yml
