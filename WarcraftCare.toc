@@ -1,0 +1,10 @@
+## Interface: 70300
+## Title: WacraftCare
+## Author: Thalestris (Sweetlie)
+## Version: 1.0.0
+## Notes: track toon activity
+## OptionalDeps: Ace3
+## SavedVariables: WarcraftCareDB
+
+embeds.xml
+WarcraftCare.lua
