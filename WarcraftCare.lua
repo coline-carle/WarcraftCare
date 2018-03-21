@@ -14,6 +14,8 @@ local ERR_ZONE_EXPLORED_XP = _G.ERR_ZONE_EXPLORED_XP
 local MAX_PLAYER_LEVEL = _G.MAX_PLAYER_LEVEL
 local BUCKET_SIZE = 60
 
+local XP_ALTERATIONS = { "bonusExperience", "bonusGroup", "bonusRaid", "raidPenality", "groupPenality"}
+
 
 local defaultDB = {
   char = {
@@ -24,7 +26,9 @@ local defaultDB = {
 
 
 local function transformPattern(patterns, global)
-  for pattern, replacement in pairs(patterns) do
+  local pattern, replacement
+  for _, patternPair in ipairs(patterns) do
+    pattern, replacement = unpack(patternPair)
     global = string.gsub(global, pattern, replacement)
   end
   return '^' .. global .. '$'
@@ -32,13 +36,19 @@ end
 
 function WarcraftCare:PopulatePatterns()
   local patterns = {
-    ['%('] = '%%(',
-    ['%)'] = '%%)',
-    ['%%d'] = '(%%d+)',
-    ['%%s'] = '(.+)'
+    {'%(', '%%('},
+    {'%)', '%%)'},
+    {'%.', '%%.'},
+    {'%+', '%%+'},
+    {'%-', '%%-'},
+    {'%%d', '(%%d+)'},
+    {'%%s', '(.+)'},
   }
 
   self.Exp = {
+    ["PatternOrder"] = {
+      "RaidPenality", "RaidBonus", "GroupBonus", "GroupPenality", "Penality", "Bonus", "NormalGroup", "NormalRaid", "Normal", "Unnamed"
+    },
     ["Strings"] = {
       ["Normal"] = {},
       ["NormalGroup"] = {},
@@ -56,12 +66,12 @@ function WarcraftCare:PopulatePatterns()
       ["NormalGroup"] = { "unit", "experience", "groupPenality"},
       ["NormalRaid"] = { "unit", "experience", "raidPenality"},
       ["Unnamed"] = { "experience" },
-      ["Bonus"] = {"unit", "experience", "bonusExperience", "bonus"},
-      ["Penality"] =  {"unit", "experience", "bonusExperience", "penality"},
-      ["GroupBonus"] = {"unit", "experience", "bonusExperience", "bonus", "groupBonus"},
-      ["GroupPenality"] = {"unit", "experience", "bonusExperience", "penality", "groupBonus"},
-      ["RaidBonus"] =  {"unit", "experience", "bonusExperience", "bonus", "raidPenality"},
-      ["RaidPenality"] ={"unit", "experience", "bonusExperience", "penality", "raidPenality"}
+      ["Bonus"] = {"unit", "experience", "bonusExperience", "bonusName"},
+      ["Penality"] =  {"unit", "experience", "bonusExperience", "penalityName"},
+      ["GroupBonus"] = {"unit", "experience", "bonusExperience", "bonusName", "groupBonus"},
+      ["GroupPenality"] = {"unit", "experience", "bonusExperience", "penalityName", "groupBonus"},
+      ["RaidBonus"] =  {"unit", "experience", "bonusExperience", "bonusName", "raidPenality"},
+      ["RaidPenality"] ={"unit", "experience", "bonusExperience", "penalityName", "raidPenality"}
     }
   }
 
@@ -135,51 +145,66 @@ function WarcraftCare:OnInitialize()
 end
 
 local function convertBonus(bonus)
-  local prefix = string.byte(bonus)
-  local numberString = string.sub(bonus, 2)
-  local number = tonumber(numberString)
-  if prefix == string.byte('-') then
-    return (- number)
+  if type(bonus) == "number" then
+    return bonus
   end
-  return number
+
+  local prefix = string.byte(bonus)
+
+  if prefix == string.byte('-') then
+    local numberPart = string.sub(bonus, 2)
+    return (- tonumber(numberPart))
+  elseif prefix == string.byte('+') then
+    local numberPart = string.sub(bonus, 2)
+    return tonumber(numberPart)
+  end
+
+  return tonumber(bonus)
+end
+
+local function increment(entry, key, incrementValue)
+  if not(entry[key]) then
+    entry[key] = 0
+  end
+  entry[key] = entry[key] + incrementValue
 end
 
 function WarcraftCare:AddToBucket(experienceGain)
   local entryIndex = #self.db.char.experienceDB
-  local lastEntry = self.db.char.experienceDB[entryIndex]
+  local currentEntry = self.db.char.experienceDB[entryIndex]
 
-  if not(lastEntry) or ( GetTime() - lastEntry.startTime) > BUCKET_SIZE then
-    lastEntry = {
+
+  if not(currentEntry) or ( GetTime() - currentEntry.startTime) > BUCKET_SIZE then
+    currentEntry = {
       ["startTime"] = GetTime(),
-      ["experience"] = 0,
-      ["bonusExperience"] = 0,
-      ["partyBonus"] = 0
+      ["experience"] = 0
     }
     entryIndex  = entryIndex + 1
   end
 
-  lastEntry.experience = lastEntry.experience + experienceGain.experience
+  currentEntry.experience = currentEntry.experience + experienceGain.experience
 
-  if experienceGain.bonusExperience then
-    lastEntry.bonusExperience = lastEntry.bonusExperience + convertBonus(experienceGain.bonusExperience)
+  for _, alteration in ipairs(XP_ALTERATIONS) do
+    if experienceGain[alteration] then
+      local alterationValue = convertBonus(experienceGain[alteration])
+      increment(currentEntry, alteration, alterationValue)
+    end
   end
 
-  if experienceGain.partyBonus then
-    lastEntry.partyBonus = convertBonus(experienceGain.partyBonus)
-  end
-
-  self.db.char.experienceDB[entryIndex] = lastEntry
+  self.db.char.experienceDB[entryIndex] = currentEntry
 end
 
 function WarcraftCare:CHAT_MSG_COMBAT_XP_GAIN(_, msg)
-  local match
-  for name, patterns in pairs(self.Exp.Strings) do
+  local match, patterns
+  for _, name in ipairs(self.Exp.PatternOrder) do
+    patterns = self.Exp.Strings[name]
     for _, pattern in ipairs(patterns) do
       match = { string.match(msg, pattern) }
       if #match == #self.Exp.Patterns[name] then
         local entry = {}
         for i, key in ipairs(self.Exp.Patterns[name]) do
           entry[key] = match[i]
+          self:Print(key, ": ", match[i])
         end
         self:AddToBucket(entry)
         return
