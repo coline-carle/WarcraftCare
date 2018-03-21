@@ -26,7 +26,7 @@ local MAX_PLAYER_LEVEL = _G.MAX_PLAYER_LEVEL
 local BUCKET_SIZE = 60
 
 local XP_ALTERATIONS = {
-  "combatExprience", "bonusExperience", "bonusGroup", "bonusRaid", "raidPenality",
+  "combatExperience", "bonusExperience", "bonusGroup", "bonusRaid", "raidPenality",
   "groupPenality", "exploreExperience", "questExperience"
 }
 
