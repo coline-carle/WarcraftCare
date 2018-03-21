@@ -25,7 +25,10 @@ local ERR_ZONE_EXPLORED_XP = _G.ERR_ZONE_EXPLORED_XP
 local MAX_PLAYER_LEVEL = _G.MAX_PLAYER_LEVEL
 local BUCKET_SIZE = 60
 
-local XP_ALTERATIONS = { "bonusExperience", "bonusGroup", "bonusRaid", "raidPenality", "groupPenality"}
+local XP_ALTERATIONS = {
+  "combatExprience", "bonusExperience", "bonusGroup", "bonusRaid", "raidPenality",
+  "groupPenality", "exploreExperience", "questExperience"
+}
 
 
 local defaultDB = {
@@ -74,16 +77,16 @@ function WarcraftCare:PopulatePatterns()
       ["RaidPenality"] = {}
     },
     ["Patterns"] = {
-      ["Normal"] = { "unit", "experience"},
-      ["NormalGroup"] = { "unit", "experience", "groupPenality"},
-      ["NormalRaid"] = { "unit", "experience", "raidPenality"},
-      ["Unnamed"] = { "experience" },
-      ["Bonus"] = {"unit", "experience", "bonusExperience", "bonusName"},
-      ["Penality"] =  {"unit", "experience", "bonusExperience", "penalityName"},
-      ["GroupBonus"] = {"unit", "experience", "bonusExperience", "bonusName", "groupBonus"},
-      ["GroupPenality"] = {"unit", "experience", "bonusExperience", "penalityName", "groupBonus"},
-      ["RaidBonus"] =  {"unit", "experience", "bonusExperience", "bonusName", "raidPenality"},
-      ["RaidPenality"] ={"unit", "experience", "bonusExperience", "penalityName", "raidPenality"}
+      ["Normal"] = { "unit", "combatExperience"},
+      ["NormalGroup"] = { "unit", "combatExperience", "groupPenality"},
+      ["NormalRaid"] = { "unit", "combatExperience", "raidPenality"},
+      ["Unnamed"] = { "combatExperience" },
+      ["Bonus"] = {"unit", "combatExperience", "bonusExperience", "bonusName"},
+      ["Penality"] =  {"unit", "combatExperience", "bonusExperience", "penalityName"},
+      ["GroupBonus"] = {"unit", "combatExperience", "bonusExperience", "bonusName", "groupBonus"},
+      ["GroupPenality"] = {"unit", "combatExperience", "bonusExperience", "penalityName", "groupBonus"},
+      ["RaidBonus"] =  {"unit", "combatExperience", "bonusExperience", "bonusName", "raidPenality"},
+      ["RaidPenality"] ={"unit", "combatExperience", "bonusExperience", "penalityName", "raidPenality"}
     }
   }
 
@@ -186,13 +189,10 @@ function WarcraftCare:AddToBucket(experienceGain)
 
   if not(currentEntry) or ( GetTime() - currentEntry.startTime) > BUCKET_SIZE then
     currentEntry = {
-      ["startTime"] = GetTime(),
-      ["experience"] = 0
+      ["startTime"] = GetTime()
     }
     entryIndex  = entryIndex + 1
   end
-
-  currentEntry.experience = currentEntry.experience + experienceGain.experience
 
   for _, alteration in ipairs(XP_ALTERATIONS) do
     if experienceGain[alteration] then
@@ -227,12 +227,14 @@ function WarcraftCare:CHAT_MSG_SYSTEM(_, msg)
   local xp, zone
   xp = string.match(msg, self.questRewardXPPattern)
   if xp then
-    self:Print(xp)
+    local experience = { ["questExperience"] = xp }
+    self:AddToBucket(experience)
   end
 
   zone, xp = string.match(msg, self.exploreXPPattern)
   if zone then
-    self:Print(xp)
+    local experience = { ["exploreExperience"] = xp }
+    self:AddToBucket(experience)
   end
 end
 --
