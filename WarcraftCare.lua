@@ -1,9 +1,5 @@
 local WarcraftCare = LibStub("AceAddon-3.0"):NewAddon("WarcraftCare", "AceConsole-3.0", "AceEvent-3.0")
 
--- local libwindow = LibStub("LibWindow-1.1")
-
-
-
 local COMBATLOG_XPGAIN_FIRSTPERSON =  _G.COMBATLOG_XPGAIN_FIRSTPERSON
 local COMBATLOG_XPGAIN_FIRSTPERSON_UNNAMED = _G.COMBATLOG_XPGAIN_FIRSTPERSON_UNNAMED
 local COMBATLOG_XPGAIN_EXHAUSTION1 = _G.COMBATLOG_XPGAIN_EXHAUSTION1
@@ -33,7 +29,13 @@ local XP_ALTERATIONS = {
 
 local defaultDB = {
   char = {
-    ["experienceDB"] = {}
+    experienceDB = {},
+    questDB = {
+      accepted = {},
+      removed = {},
+      completed = {}
+    },
+    mapDB = {}
   }
 }
 
@@ -60,33 +62,33 @@ function WarcraftCare:PopulatePatterns()
   }
 
   self.Exp = {
-    ["PatternOrder"] = {
+    PatternOrder = {
       "RaidPenality", "RaidBonus", "GroupBonus", "GroupPenality", "Penality", "Bonus", "NormalGroup",
       "NormalRaid", "Normal", "Unnamed"
     },
-    ["Strings"] = {
-      ["Normal"] = {},
-      ["NormalGroup"] = {},
-      ["NormalRaid"] = {},
-      ["Unnamed"] = {},
-      ["Bonus"] = {},
-      ["Penality"] = {},
-      ["GroupBonus"] = {},
-      ["GroupPenality"] = {},
-      ["RaidBonus"] = {},
-      ["RaidPenality"] = {}
+    Strings = {
+      Normal = {},
+      NormalGroup = {},
+      NormalRaid = {},
+      Unnamed = {},
+      Bonus = {},
+      Penality = {},
+      GroupBonus = {},
+      GroupPenality = {},
+      RaidBonus = {},
+      RaidPenality = {}
     },
-    ["Patterns"] = {
-      ["Normal"] = { "unit", "combatExperience"},
-      ["NormalGroup"] = { "unit", "combatExperience", "groupPenality"},
-      ["NormalRaid"] = { "unit", "combatExperience", "raidPenality"},
-      ["Unnamed"] = { "combatExperience" },
-      ["Bonus"] = {"unit", "combatExperience", "bonusExperience", "bonusName"},
-      ["Penality"] =  {"unit", "combatExperience", "bonusExperience", "penalityName"},
-      ["GroupBonus"] = {"unit", "combatExperience", "bonusExperience", "bonusName", "groupBonus"},
-      ["GroupPenality"] = {"unit", "combatExperience", "bonusExperience", "penalityName", "groupBonus"},
-      ["RaidBonus"] =  {"unit", "combatExperience", "bonusExperience", "bonusName", "raidPenality"},
-      ["RaidPenality"] ={"unit", "combatExperience", "bonusExperience", "penalityName", "raidPenality"}
+    Patterns = {
+      Normal = { "unit", "combatExperience"},
+      NormalGroup = { "unit", "combatExperience", "groupPenality"},
+      NormalRaid = { "unit", "combatExperience", "raidPenality"},
+      Unnamed = { "combatExperience" },
+      Bonus = {"unit", "combatExperience", "bonusExperience", "bonusName"},
+      Penality =  {"unit", "combatExperience", "bonusExperience", "penalityName"},
+      GroupBonus = {"unit", "combatExperience", "bonusExperience", "bonusName", "groupBonus"},
+      GroupPenality = {"unit", "combatExperience", "bonusExperience", "penalityName", "groupBonus"},
+      RaidBonus =  {"unit", "combatExperience", "bonusExperience", "bonusName", "raidPenality"},
+      RaidPenality ={"unit", "combatExperience", "bonusExperience", "penalityName", "raidPenality"}
     }
   }
 
@@ -152,9 +154,16 @@ function WarcraftCare:OnInitialize()
   self.db = LibStub("AceDB-3.0"):New("WarcraftCareDB", defaultDB)
 
   self:PopulatePatterns()
+  local mapID = GetCurrentMapAreaID()
+  table.insert(self.db.char.mapDB, {mapID, GetTime()})
 
   self:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
   self:RegisterEvent("CHAT_MSG_SYSTEM")
+  self:RegisterEvent("QUEST_ACCEPTED")
+  self:RegisterEvent("QUEST_REMOVED")
+  self:RegisterEvent("ZONE_CHANGED")
+  self:RegisterEvent("ZONE_CHANGED_INDOORS")
+  self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 end
 
 local function convertBonus(bonus)
@@ -189,7 +198,7 @@ function WarcraftCare:AddToBucket(experienceGain)
 
   if not(currentEntry) or ( GetTime() - currentEntry.startTime) > BUCKET_SIZE then
     currentEntry = {
-      ["startTime"] = GetTime()
+      startTime = GetTime()
     }
     entryIndex  = entryIndex + 1
   end
@@ -223,23 +232,59 @@ function WarcraftCare:CHAT_MSG_COMBAT_XP_GAIN(_, msg)
   end
 end
 
+function WarcraftCare:QUEST_ACCEPTED(_, _, questID)
+  table.insert(self.db.char.questDB.accepted, {questID, GetTime()})
+end
+
+function WarcraftCare:QUEST_REMOVED(_, questID)
+  table.insert(self.db.char.questDB.removed, {questID, GetTime()})
+end
+
 function WarcraftCare:CHAT_MSG_SYSTEM(_, msg)
   local xp, zone
   xp = string.match(msg, self.questRewardXPPattern)
   if xp then
-    local experience = { ["questExperience"] = xp }
+    local experience = { questExperience = xp }
     self:AddToBucket(experience)
   end
 
   zone, xp = string.match(msg, self.exploreXPPattern)
   if zone then
-    local experience = { ["exploreExperience"] = xp }
+    local experience = { exploreExperience = xp }
     self:AddToBucket(experience)
   end
 end
---
+
+function WarcraftCare:CheckZone()
+  local mapID = GetCurrentMapAreaID()
+  if mapID == -1 then return end
+  local size = #self.db.char.mapDB
+  if size == 0 then
+    table.insert(self.db.char.mapDB, {mapID, GetTime()})
+  end
+  local lastMapID, _ = unpack(self.db.char.mapDB[#self.db.char.mapDB])
+  if lastMapID ~= mapID then
+    table.insert(self.db.char.mapDB, {mapID, GetTime()})
+  end
+end
+
 -- function WarcraftCare:PLAYER_XP_UPDATE()
+--
 -- end
--- function WarcraftCare:ZONE_CHANGED()
---   self:CheckZone()
--- end
+
+function WarcraftCare:PLAYER_ENTERING_WORLD()
+   self:CheckZone()
+end
+
+
+function WarcraftCare:ZONE_CHANGED_INDOORS()
+   self:CheckZone()
+end
+
+function WarcraftCare:ZONE_CHANGED()
+   self:CheckZone()
+end
+
+function WarcraftCare:ZONE_CHANGED_NEW_AREA()
+   self:CheckZone()
+end
